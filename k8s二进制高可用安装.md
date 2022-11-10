@@ -241,6 +241,12 @@ net.ipv4.tcp_timestamps = 0
 
 # 定义了系统中每一个端口最大的监听队列的长度,这是个全局的参数,默认值为128.限制了每个端口接收新tcp连接侦听队列的大小
 net.core.somaxconn = 16384
+
+#定义打开最大进程/线程数
+kernel.pid_max = 327680
+vm.max_map_count = 262144
+vm.overcommit_memory = 0
+
 EOF
 sysctl --system
 ```
