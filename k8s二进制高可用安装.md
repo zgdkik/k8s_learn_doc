@@ -2,17 +2,17 @@
 
 主机规划
 
-- 192.168.2.4 k8s-master01 
+- `192.168.2.4` k8s-master01 
 
-- 192.168.2.5 k8s-master02
+- `192.168.2.5` k8s-master02
 
-- 192.168.2.6 k8s-master03 
+- `192.168.2.6` k8s-master03 
 
-- 192.168.2.7 k8s-node01
-- 192.168.2.8 k8s-node02
-- 192.168.2.24 k8s-master-lb  (vip)
+- `192.168.2.7` k8s-node01
+- `192.168.2.8` k8s-node02
+- `192.168.2.24` k8s-master-lb  (vip)
 
-其中，Node节点网段为`192.168.2.0/24`，k8s pod网段为`172.16.0.0/16`，service网段为`10.96.0.0/12`，kube-dns ip地址为`10.96.0.10`，k8s service ip地址为`10.96.0.1`，您可以通过批量替换以上ip来适应您的网络环境。
+其中，Node节点网段为`192.168.2.0/24`，k8s pod网段为`172.16.0.0/16`，service网段为`10.96.0.0/16`，kube-dns ip地址为`10.96.0.10`，k8s api vip地址为`192.168.2.24`，k8s service ip地址为`10.96.0.1`，kubernetes版本为`v1.20.11`，etcd版本为`v3.5.0`，helm版本为`v3.6.3`，calico版本为`v3.25.0`，您可以直接批量替这些ip或版本以适应您的环境。
 
 ## 一、基础环境配置
 
@@ -100,7 +100,6 @@ yum install wget jq psmisc vim net-tools telnet yum-utils device-mapper-persiste
 ```bash
 sed -i 's#SELINUX=enforcing#SELINUX=disabled#g' /etc/selinux/config
 systemctl disable firewalld --now
-systemctl disable NetworkManager --now
 chmod +x /etc/rc.d/rc.local
 systemctl list-unit-files|egrep "^ab|^aud|^kdump|vm|^md|^mic|^post|lvm"  |awk '{print $1}'|sed -r 's#(.*)#systemctl disable &#g'|bash
 echo 'export HISTTIMEFORMAT="%Y-%m-%d %H:%M:%S  "' >> /etc/profile
@@ -316,7 +315,7 @@ mkdir -p /etc/docker
 cat << EOF > /etc/docker/daemon.json
 {
   "registry-mirrors": [
-    "https://kc95fq7u.mirror.aliyuncs.com"
+    "https://hub-mirror.c.163.com"
   ],
   "exec-opts": [
     "native.cgroupdriver=systemd"
@@ -358,7 +357,7 @@ chmod +x /usr/local/bin/cfssl /usr/local/bin/cfssljson /usr/local/bin/cfssl-cert
 master节点
 
 ```bash
-mkdir -p /etc/etcd/ssl /etc/kubernetes/pki/etcd  /root/.kube 
+mkdir -p /etc/kubernetes/pki/etcd  /root/.kube 
 ```
 
 所有节点(master和node)
@@ -378,24 +377,24 @@ cd k8s_learn_doc/install_resource/k8s_pki_config
 #### 3.1 etcd CA证书
 
 ```bash
-cfssl gencert -initca etcd-ca-csr.json | cfssljson -bare /etc/etcd/ssl/etcd-ca
+cfssl gencert -initca etcd-ca-csr.json | cfssljson -bare /etc/kubernetes/pki/etcd/etcd-ca
 ```
 #### 3.2 etcd证书
 
 ```bash
 cfssl gencert \
--ca=/etc/etcd/ssl/etcd-ca.pem \
--ca-key=/etc/etcd/ssl/etcd-ca-key.pem \
+-ca=/etc/kubernetes/pki/etcd/etcd-ca.pem \
+-ca-key=/etc/kubernetes/pki/etcd/etcd-ca-key.pem \
 -config=ca-config.json \
 -hostname=127.0.0.1,k8s-master01,k8s-master02,k8s-master03,192.168.2.4,192.168.2.5,192.168.2.6 \
 -profile=kubernetes \
-etcd-csr.json | cfssljson -bare /etc/etcd/ssl/etcd
+etcd-csr.json | cfssljson -bare /etc/kubernetes/pki/etcd/etcd
 ```
 
 #### 3.3 软链接
 
 ```bash
-ln -s /etc/etcd/ssl/* /etc/kubernetes/pki/etcd/
+ln -s /etc/kubernetes/pki/etcd/* /etc/kubernetes/pki/etcd/
 ```
 
 ### 4.kubernetes
@@ -621,12 +620,12 @@ do
         scp /etc/kubernetes/${FILE} $NODE:/etc/kubernetes/${FILE}
     done
     
-    for FILE in `ls /etc/etcd/ssl`;
+    for FILE in `ls /etc/kubernetes/pki/etcd`;
     do
-        scp /etc/etcd/ssl/${FILE} $NODE:/etc/etcd/ssl/${FILE}
+        scp /etc/kubernetes/pki/etcd/${FILE} $NODE:/etc/kubernetes/pki/etcd/${FILE}
     done
     
-    ssh $NODE ln -s /etc/etcd/ssl/* /etc/kubernetes/pki/etcd/
+    ssh $NODE ln -s /etc/kubernetes/pki/etcd/* /etc/kubernetes/pki/etcd/
 done
 
 ```
@@ -1053,17 +1052,16 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/kube-apiserver \
       --v=2  \
-      --logtostderr=true  \
       --allow-privileged=true  \
       --bind-address=0.0.0.0  \
       --secure-port=6443  \
       --advertise-address=192.168.2.4 \
-      --service-cluster-ip-range=10.96.0.0/12  \
+      --service-cluster-ip-range=10.96.0.0/16  \
       --service-node-port-range=30000-32767  \
       --etcd-servers=https://192.168.2.4:2379,https://192.168.2.5:2379,https://192.168.2.6:2379 \
-      --etcd-cafile=/etc/etcd/ssl/etcd-ca.pem  \
-      --etcd-certfile=/etc/etcd/ssl/etcd.pem  \
-      --etcd-keyfile=/etc/etcd/ssl/etcd-key.pem  \
+      --etcd-cafile=/etc/kubernetes/pki/etcd/etcd-ca.pem  \
+      --etcd-certfile=/etc/kubernetes/pki/etcd/etcd.pem  \
+      --etcd-keyfile=/etc/kubernetes/pki/etcd/etcd-key.pem  \
       --client-ca-file=/etc/kubernetes/pki/ca.pem  \
       --tls-cert-file=/etc/kubernetes/pki/apiserver.pem  \
       --tls-private-key-file=/etc/kubernetes/pki/apiserver-key.pem  \
@@ -1106,17 +1104,16 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/kube-apiserver \
       --v=2  \
-      --logtostderr=true  \
       --allow-privileged=true  \
       --bind-address=0.0.0.0  \
       --secure-port=6443  \
       --advertise-address=192.168.2.5 \
-      --service-cluster-ip-range=10.96.0.0/12  \
+      --service-cluster-ip-range=10.96.0.0/16  \
       --service-node-port-range=30000-32767  \
       --etcd-servers=https://192.168.2.4:2379,https://192.168.2.5:2379,https://192.168.2.6:2379 \
-      --etcd-cafile=/etc/etcd/ssl/etcd-ca.pem  \
-      --etcd-certfile=/etc/etcd/ssl/etcd.pem  \
-      --etcd-keyfile=/etc/etcd/ssl/etcd-key.pem  \
+      --etcd-cafile=/etc/kubernetes/pki/etcd/etcd-ca.pem  \
+      --etcd-certfile=/etc/kubernetes/pki/etcd/etcd.pem  \
+      --etcd-keyfile=/etc/kubernetes/pki/etcd/etcd-key.pem  \
       --client-ca-file=/etc/kubernetes/pki/ca.pem  \
       --tls-cert-file=/etc/kubernetes/pki/apiserver.pem  \
       --tls-private-key-file=/etc/kubernetes/pki/apiserver-key.pem  \
@@ -1159,17 +1156,16 @@ After=network.target
 [Service]
 ExecStart=/usr/local/bin/kube-apiserver \
       --v=2  \
-      --logtostderr=true  \
       --allow-privileged=true  \
       --bind-address=0.0.0.0  \
       --secure-port=6443  \
       --advertise-address=192.168.2.6 \
-      --service-cluster-ip-range=10.96.0.0/12  \
+      --service-cluster-ip-range=10.96.0.0/16  \
       --service-node-port-range=30000-32767  \
       --etcd-servers=https://192.168.2.4:2379,https://192.168.2.5:2379,https://192.168.2.6:2379 \
-      --etcd-cafile=/etc/etcd/ssl/etcd-ca.pem  \
-      --etcd-certfile=/etc/etcd/ssl/etcd.pem  \
-      --etcd-keyfile=/etc/etcd/ssl/etcd-key.pem  \
+      --etcd-cafile=/etc/kubernetes/pki/etcd/etcd-ca.pem  \
+      --etcd-certfile=/etc/kubernetes/pki/etcd/etcd.pem  \
+      --etcd-keyfile=/etc/kubernetes/pki/etcd/etcd-key.pem  \
       --client-ca-file=/etc/kubernetes/pki/ca.pem  \
       --tls-cert-file=/etc/kubernetes/pki/apiserver.pem  \
       --tls-private-key-file=/etc/kubernetes/pki/apiserver-key.pem  \
@@ -1224,7 +1220,6 @@ ExecStart=/usr/local/bin/kube-controller-manager \
       --v=2 \
       --authentication-kubeconfig=/etc/kubernetes/controller-manager.kubeconfig \
       --authorization-kubeconfig=/etc/kubernetes/controller-manager.kubeconfig \
-      --logtostderr=true \
       --bind-address=0.0.0.0  \
       --root-ca-file=/etc/kubernetes/pki/ca.pem \
       --cluster-signing-cert-file=/etc/kubernetes/pki/ca.pem \
@@ -1238,7 +1233,7 @@ ExecStart=/usr/local/bin/kube-controller-manager \
       --pod-eviction-timeout=2m0s \
       --controllers=*,bootstrapsigner,tokencleaner \
       --allocate-node-cidrs=true \
-      --cluster-cidr=172.16.0.0/12 \
+      --cluster-cidr=172.16.0.0/16 \
       --requestheader-client-ca-file=/etc/kubernetes/pki/front-proxy-ca.pem \
       --node-cidr-mask-size=24 \
       --cluster-signing-duration=876000h0m0s \
@@ -1276,7 +1271,6 @@ ExecStart=/usr/local/bin/kube-scheduler \
       --v=2 \
       --authentication-kubeconfig=/etc/kubernetes/scheduler.kubeconfig \
       --authorization-kubeconfig=/etc/kubernetes/scheduler.kubeconfig \
-      --logtostderr=true \
       --bind-address=0.0.0.0  \
       --leader-elect=true \
       --kubeconfig=/etc/kubernetes/scheduler.kubeconfig \
@@ -1575,7 +1569,7 @@ clientConnection:
   contentType: application/vnd.kubernetes.protobuf
   kubeconfig: /etc/kubernetes/kube-proxy.kubeconfig
   qps: 5
-clusterCIDR: 172.16.0.0/12
+clusterCIDR: 172.16.0.0/16
 configSyncPeriod: 15m0s
 conntrack:
   max: null
@@ -1651,37 +1645,59 @@ kubectl taint node k8s-master01 k8s-master02 k8s-master03 node-role.kubernetes.i
 
 ### 1.下载calico资源文件
 
+datasource为etcd
+
 ```bash
-wget https://docs.projectcalico.org/manifests/calico-etcd.yaml
+wget https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico-etcd.yaml -O calico.yaml
+```
+
+datasource为kubernetes
+
+```bash
+wget https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml -O calico.yaml
 ```
 
 ### 2.修改calico配置文件
 
+datasource为etcd
+
 ```bash
-sed -i 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://192.168.2.4:2379,https://192.168.2.5:2379,https://192.168.2.6:2379"#g' calico-etcd.yaml
+sed -i 's#etcd_endpoints: "http://<ETCD_IP>:<ETCD_PORT>"#etcd_endpoints: "https://192.168.2.4:2379,https://192.168.2.5:2379,https://192.168.2.6:2379"#g' calico.yaml
 
 ETCD_CA=`cat /etc/kubernetes/pki/etcd/etcd-ca.pem | base64 | tr -d '\n'`
 ETCD_CERT=`cat /etc/kubernetes/pki/etcd/etcd.pem | base64 | tr -d '\n'`
 ETCD_KEY=`cat /etc/kubernetes/pki/etcd/etcd-key.pem | base64 | tr -d '\n'`
 
-sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" calico-etcd.yaml
+sed -i "s@# etcd-key: null@etcd-key: ${ETCD_KEY}@g; s@# etcd-cert: null@etcd-cert: ${ETCD_CERT}@g; s@# etcd-ca: null@etcd-ca: ${ETCD_CA}@g" calico.yaml
 
 
-sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: "" #etcd_key: "/calico-secrets/etcd-key" #g' calico-etcd.yaml
+sed -i 's#etcd_ca: ""#etcd_ca: "/calico-secrets/etcd-ca"#g; s#etcd_cert: ""#etcd_cert: "/calico-secrets/etcd-cert"#g; s#etcd_key: "" #etcd_key: "/calico-secrets/etcd-key" #g' calico.yaml
 
 # 更改此处为自己的pod网段
-POD_SUBNET="172.16.0.0/12"
+POD_SUBNET="172.16.0.0/16"
 
-sed -i 's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"${POD_SUBNET}"'@g' calico-etcd.yaml
+sed -i 's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"${POD_SUBNET}"'@g' calico.yaml
 
 #关闭IPIP模式，如网络环境不是二层互联的可以不操作此步
-sed -i 's#value: "Always"#value: "Never"#g' calico-etcd.yaml
+sed -i 's#value: "Always"#value: "Never"#g' calico.yaml
+```
+
+datasource为kubernetes
+
+```bash
+# 更改此处为自己的pod网段
+POD_SUBNET="172.16.0.0/16"
+
+sed -i 's@# - name: CALICO_IPV4POOL_CIDR@- name: CALICO_IPV4POOL_CIDR@g; s@#   value: "192.168.0.0/16"@  value: '"${POD_SUBNET}"'@g' calico.yaml
+
+#关闭IPIP模式，如网络环境不是二层互联的可以不操作此步
+sed -i 's#value: "Always"#value: "Never"#g' calico.yaml
 ```
 
 ### 3.安装calico
 
 ```bash
-kubectl apply -f calico-etcd.yaml
+kubectl apply -f calico.yaml
 ```
 
 ## 八、安装coredns
@@ -1713,3 +1729,46 @@ cd k8s_learn_doc/install_resource/ingress_nginx
 kubectl create -f deploy.yaml
 ```
 
+## 十、安装Kubernetes Dashboard
+
+创建service account、secret(由于k8s 1.24版本创建service account不会自动创建对应secret，需要手动创建)、clusterroebinding等资
+
+源
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: admin-user-secret
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: "admin-user"
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding 
+metadata: 
+  name: admin-user
+  annotations:
+    rbac.authorization.kubernetes.io/autoupdate: "true"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: admin-user
+  namespace: kube-system
+```
+
+创建kubernetes dashboard资源
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+```
